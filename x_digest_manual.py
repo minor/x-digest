@@ -188,27 +188,27 @@ def get_digest_from_llm(tweets):
         tweet_blob += f"Text: {tweet['text']}\n"
         tweet_blob += f"Link: {tweet['link']}\n\n"
 
-    prompt = f"""hey, i have a bunch of tweets from my timeline that i've scraped very recently. could you pick the best 15 tweets that i would find interesting and give me a personalized daily "digest"? analyze these tweets and create a digest with the following EXACT format requirements:
+    prompt = f"""hey, i have a bunch of tweets from my timeline that i've scraped very recently. could you pick the best 15 tweets that i would find interesting and give me a personalized daily "digest"? analyze these tweets and create a digest with the following EXACT format requirements:
 
 1. start immediately with the first category (no introductory text)
 2. use exactly these category headers in this order (skip any that have no relevant tweets):
    ### technology & science (ai/llms/biomed/quantum/space/real breakthroughs)
-   ### world news (geopolitics, politics, US News)
+   ### world news (geopolitics, politics, u.s. news)
    ### finance & economics
    ### noteworthy 
 
 3. under each category, list relevant tweets in this exact format (no numbers, they will be added automatically):
-   @handle: [1-2 sentence summary] — <a href="[tweet url]" class="tweet-link">view on X →</a>
+   @handle: [1-2 sentence summary] → <a href="[tweet url]" class="tweet-link">view on X</a>
 
 4. do not include any other text, headers, or formatting
 
 example of the exact format:
 ### technology & science
-@handle: Summary of the tweet goes here — <a href="https://x.com/status/123" class="tweet-link">view on X →</a>
-@another: Another summary here — <a href="https://x.com/status/456" class="tweet-link">view on X →</a>
+@handle: summary of the tweet goes here → <a href="https://x.com/status/123" class="tweet-link">view on X</a>
+@another: another summary here → <a href="https://x.com/status/456" class="tweet-link">view on X</a>
 
 ### us news & politics
-@handle: Political summary here — <a href="https://x.com/status/789" class="tweet-link">view on X →</a>
+@handle: political summary here → <a href="https://x.com/status/789" class="tweet-link">view on X</a>
 
 now, here are the tweets to analyze:
 
@@ -216,7 +216,7 @@ now, here are the tweets to analyze:
 {tweet_blob}
 --- END OF TWEETS ---
 
-now, generate the digest using the tweets above, making it feel conversational – complete sentences, natural flow, occasional wry commentary where appropriate. remember: start directly with "### Technology & Science" - no other text before it.
+now, generate the digest using the tweets above, making it feel conversational – complete sentences, natural flow, occasional wry commentary where appropriate. use lower cases. remember: start directly with "### Technology & Science" - no other text before it.
 <final_digest>
 """
 
@@ -240,34 +240,51 @@ def format_html_email(digest_content):
     # Get current date for the title
     current_date = time.strftime("%B %-d, %Y")
 
-    # Replace markdown headers and formatting
-    formatted_content = digest_content.replace(
-        "\n\n", "<br><br>"
-    )  # Basic paragraph breaks
-
-    # Convert ### headers to styled div elements instead of h3
+    # 1. Convert ### headers to styled div elements
     formatted_content = re.sub(
-        r"^### (.*?)$",
+        r"^\s*###\s+(.*?)\s*$",
         r'<div class="category-header">\1</div>',
+        digest_content,
+        flags=re.MULTILINE,
+    )
+
+    # 2. Add hyperlinks to handles BEFORE wrapping in <li>
+    # Looks for @handle: at the start of a line
+    formatted_content = re.sub(
+        r"^@([a-zA-Z0-9_]+):",  # Capture the handle
+        # Replace with linked handle and the colon
+        r'<a href="https://x.com/\1" target="_blank" class="handle-link">@\1</a>:',
         formatted_content,
         flags=re.MULTILINE,
     )
 
-    # Convert each tweet line into a list item
+    # 3. Wrap each tweet line (now starting with linked handle) into a list item
+    # This looks for lines starting with our link format and wraps the whole line
+    # It assumes the summary and the 'view on X' link are on the same logical line from the LLM output
     formatted_content = re.sub(
-        r"^@.*?(?=(?:\n|$))",
-        r"<li class='tweet-item'>\g<0></li>",
+        # Match line starting with <a href...> up to the next line break
+        # or the end of the string
+        r'^(<a href="https://x.com/.*?</a>:.*?)(?:\n|$)',
+        # Wrap the matched line in <li> tags, preserving the newline/end
+        r"<li class='tweet-item'>\1</li>\n",
         formatted_content,
         flags=re.MULTILINE,
     )
+    # Clean up potential trailing newline added if the last line was a tweet
+    formatted_content = formatted_content.strip()
 
-    # Wrap consecutive tweet items in an ordered list
+    # 4. Wrap consecutive tweet items following a header in an ordered list
+    # This regex looks for a category div followed immediately by one or more list items
+    # It wraps *only the list items* in <ol> tags. DOTALL handles multi-line content within <li> if necessary.
     formatted_content = re.sub(
-        r"(<li class='tweet-item'>.*?</li>[\n\r]*)+",
-        r"<ol class='tweet-list'>\g<0></ol>",
+        r"(<div class=\"category-header\">.*?</div>\s*)((?:<li class='tweet-item'>.*?</li>\s*)+)",
+        r"\1<ol class='tweet-list'>\n\2</ol>",  # Add newline for readability
         formatted_content,
-        flags=re.DOTALL,
+        flags=re.DOTALL,  # Use DOTALL because <li> content might technically span lines
     )
+
+    # 5. Handle any remaining double newlines as paragraph breaks (though likely fewer now)
+    formatted_content = formatted_content.replace("\n\n", "<br><br>")
 
     html_body = f"""
     <!DOCTYPE html>
@@ -277,7 +294,7 @@ def format_html_email(digest_content):
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>The X Digest</title>
         <style>
-            body {{ 
+            body {{
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
                 line-height: 1.6;
                 color: #333;
@@ -288,26 +305,33 @@ def format_html_email(digest_content):
                 padding: 20px;
                 border: 1px solid #ddd;
                 border-radius: 5px;
+                background-color: #fff;
             }}
             h1 {{
-                color: #1DA1F2;
+                color: #1DA1F2; /* Twitter blue */
                 font-size: 24px;
                 margin-bottom: 16px;
             }}
             .category-header {{
                 color: #000000;
-                font-size: 13.5px;
-                font-weight: 400;
-                margin: 20px 0 12px 0;
+                font-size: 16px;
+                font-weight: 500;
+                margin: 24px 0 12px 0;
                 padding-bottom: 4px;
             }}
             .tweet-list {{
-                list-style-type: decimal;
+                list-style-type: disc;
                 padding-left: 20px;
                 margin: 15px 0;
+                border-left: 2px solid #eee;
+                background-color: #fdfdfd;
+                border-radius: 4px;
+                padding-top: 10px;
+                padding-bottom: 1px;
             }}
             .tweet-item {{
                 margin-bottom: 15px;
+                padding-left: 3px;
                 font-size: 14px;
                 line-height: 1.5;
             }}
@@ -318,14 +342,24 @@ def format_html_email(digest_content):
             a:hover {{
                 text-decoration: underline;
             }}
-            .tweet-link {{
+            .handle-link {{ /* Style for the handle link */
+                /* font-weight: bold; */ /* Optionally make handle bold */
+                 color: #14171A; /* Darker color for handle */
+            }}
+            .tweet-link {{ /* Style for the 'view on X' link */
                 font-size: 0.9em;
+                /* margin-left: 5px; */ /* Add space before the link */
             }}
             .intro-text {{
                 font-size: 14px;
                 color: #333;
                 margin: 16px 0;
             }}
+             hr {{
+                border: none;
+                border-top: 1px solid #eee;
+                margin: 20px 0;
+             }}
         </style>
     </head>
     <body>
@@ -342,6 +376,7 @@ def format_html_email(digest_content):
     </body>
     </html>
     """
+    # print(html_body) # Optional: print HTML for debugging
     return html_body
 
 
@@ -349,10 +384,11 @@ def send_email(html_content):
     """Sends the HTML email using the Resend API."""
     print(f"Sending email digest to {RECIPIENT_EMAIL}...")
     try:
+        current_date = time.strftime("%B %-d, %Y")
         params = {
-            "from": f"X Digest <{SENDER_EMAIL}>",  # Display name <email@domain.com>
+            "from": f"X Digest <{SENDER_EMAIL}>",
             "to": [RECIPIENT_EMAIL],
-            "subject": "Your Daily X Digest is Ready!",
+            "subject": f"Your Daily X Digest — {current_date}",
             "html": html_content,
         }
         email = resend.Emails.send(params)
