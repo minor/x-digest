@@ -37,7 +37,7 @@ tired of endless scrolling but still want to stay informed? `x-digest` delivers 
 1.  **clone the repository:**
 
     ```bash
-    git clone <repository_url>
+    git clone https://github.com/minor/x-digest.git
     cd x-digest
     ```
 
