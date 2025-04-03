@@ -2,6 +2,9 @@
 
 tired of endless scrolling but still want to stay informed? `x-digest` delivers a daily summary of your favorite X tweets directly to your inbox. this script automates the process of scraping, summarizing, and emailing a personalized digest of your timeline.
 
+![example email](https://github.com/user-attachments/assets/368cb3a0-50b3-4810-a5f1-7dea493ec129)
+
+
 ## features
 
 - **automated scraping:** efficiently scrapes tweets from your X timeline using selenium
